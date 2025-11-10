@@ -86,7 +86,7 @@
       let recordedChunks = [];
       let logs = [];
 
-      // 로그 출력 함수
+      // 로그 출력
       function log(msg) {
         const time = new Date().toLocaleTimeString();
         const entry = `[${time}] ${msg}`;
@@ -96,7 +96,7 @@
         logDiv.scrollTop = logDiv.scrollHeight;
       }
 
-      // 오디오 미리 로드 (iOS 지연 방지)
+      // 오디오 미리 로드
       function preloadAudios() {
         const files = [
           "/intro.mp3",
@@ -113,22 +113,22 @@
         });
       }
 
-      // 오디오 재생 함수
+      // 오디오 재생
       function playAudio(src, callback) {
         const audio = new Audio(src);
         audio.play().catch(() => {
-          log("⚠️ iOS 자동재생 차단됨 — 반드시 터치 후 실행 필요");
+          log("⚠️ 자동재생 차단됨 — 터치로 오디오 권한 허용 필요");
         });
         if (callback) audio.onended = callback;
       }
 
-      // iOS용 오디오 권한 초기화
+      // 오디오 권한 초기화 (안내멘트 버튼용)
       function initAudio() {
         if (!audioEnabled) {
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           audioContext.resume().then(() => {
             preloadAudios();
-            log("🔊 오디오 권한 활성화됨 (iOS Safari 포함)");
+            log("🔊 오디오 권한 활성화됨 (모바일/PC)");
             audioEnabled = true;
             playIntro();
           });
@@ -146,14 +146,28 @@
         });
       }
 
-      // 신고유형 선택 → 담당자멘트 → 연결음 → 부재중멘트
+      // 신고유형 클릭 시 오디오 허용도 동시에 처리
       function startCall(type) {
+        if (!audioEnabled) {
+          // 첫 신고 클릭으로 오디오 권한 자동 허용
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          audioContext.resume().then(() => {
+            audioEnabled = true;
+            log("🔊 오디오 권한 자동 활성화됨 (첫 신고 클릭)");
+            actuallyStartCall(type);
+          });
+        } else {
+          actuallyStartCall(type);
+        }
+      }
+
+      // 실제 통화 흐름
+      function actuallyStartCall(type) {
         log(`📞 ${type} 신고 통화 시작`);
         playAudio(`/${type}.mp3`, () => {
           log("🔊 담당자 멘트 재생 완료 → 연결음 재생 (3초)");
           const ring = new Audio("/ring.mp3");
           ring.play();
-
           setTimeout(() => {
             ring.pause();
             ring.currentTime = 0;
@@ -166,7 +180,7 @@
         });
       }
 
-      // 종료 버튼 → 오디오 모두 중지 후 종료멘트
+      // 종료 버튼
       function endCall() {
         log("🛑 통화 종료");
         clearTimeout(callTimer);
