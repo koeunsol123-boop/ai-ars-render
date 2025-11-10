@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AI ARS 시연 시스템</title>
+    <style>
+      body {
+        font-family: "Noto Sans KR", sans-serif;
+        text-align: center;
+        padding: 30px;
+        background: #f4f6f9;
+      }
+      h2 {
+        color: #1a73e8;
+        margin-bottom: 10px;
+      }
+      button {
+        margin: 10px;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        background-color: #1976d2;
+        color: white;
+        cursor: pointer;
+        font-size: 15px;
+      }
+      button:hover {
+        background-color: #135ba1;
+      }
+      #log {
+        margin-top: 30px;
+        padding: 15px;
+        background: #fff;
+        border-radius: 10px;
+        width: 70%;
+        margin-left: auto;
+        margin-right: auto;
+        text-align: left;
+        font-family: monospace;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      }
+      #menu {
+        display: none;
+        margin-top: 15px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h2>AI ARS 시연 시스템</h2>
+    <p>
+      먼저 ‘안내 멘트 재생’을 눌러 초기 음성을 들은 뒤,<br />
+      신고 유형을 선택해주세요.
+    </p>
+
+    <div>
+      <button onclick="playIntro()">① 안내 멘트 재생</button>
+      <div id="menu">
+        <button onclick="startCall('fake')">가짜석유 신고</button>
+        <button onclick="startCall('mixed')">혼합유 신고</button>
+        <button onclick="startCall('station')">주유소 개·폐업 신고</button>
+      </div>
+      <button onclick="endCall()">종료</button>
+      <button onclick="downloadLog()">📄 로그 다운로드</button>
+    </div>
+
+    <div id="recordingControls" style="margin-top: 20px; display: none;">
+      <h3>🎙️ 담당자 부재중 녹음</h3>
+      <button id="btn-record">녹음 시작</button>
+      <button id="btn-stop" disabled>⏹️ 녹음 중지</button>
+      <button id="btn-play" disabled>▶️ 재생</button>
+    </div>
+
+    <h3>로그</h3>
+    <div id="log"></div>
+
+    <script>
+      let callTimer;
+      let mediaRecorder;
+      let recordedChunks = [];
+      let logs = [];
+
+      function log(msg) {
+        const time = new Date().toLocaleTimeString();
+        const entry = `[${time}] ${msg}`;
+        logs.push(entry);
+        const logDiv = document.getElementById("log");
+        logDiv.innerHTML += entry + "<br>";
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+
+      function playAudio(src, callback) {
+        const audio = new Audio(src);
+        audio.play();
+        if (callback) audio.onended = callback;
+      }
+
+      // 🗣️ 안내 멘트
+      function playIntro() {
+        log("🗣️ 안내 멘트 재생 시작");
+        playAudio("intro.mp3", () => {
+          log("✅ 안내 멘트 종료 → 메뉴 표시");
+          document.getElementById("menu").style.display = "block";
+        });
+      }
+
+      // 📞 신고 선택 시 흐름: 담당자 안내 → 3초 연결음 → 3초 뒤 부재중 안내
+      function startCall(type) {
+        log(`📞 ${type} 신고 통화 시작`);
+        playAudio(`${type}.mp3`, () => {
+          log("🔊 담당자 멘트 재생 완료 → 연결음 재생 (3초)");
+          const ring = new Audio("ring.mp3");
+          ring.play();
+          setTimeout(() => {
+            ring.pause();
+            ring.currentTime = 0;
+            log("⏱️ 3초 후 부재중 안내 재생");
+            callTimer = setTimeout(() => {
+              playAudio("unavailable.mp3", () => {
+                log("🎙️ 담당자 부재중 안내 종료 → 녹음버튼 표시");
+                document.getElementById("recordingControls").style.display = "block";
+              });
+            }, 3000); // 부재중 안내 3초 후 재생
+          }, 3000); // 연결음 3초만 재생
+        });
+      }
+
+      // 🛑 종료
+      function endCall() {
+        clearTimeout(callTimer);
+        playAudio("end.mp3");
+        log("🛑 통화 종료");
+      }
+
+      // 🎙️ 녹음 기능
+      const btnRecord = document.getElementById("btn-record");
+      const btnStop = document.getElementById("btn-stop");
+      const btnPlay = document.getElementById("btn-play");
+
+      btnRecord.onclick = async () => {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        recordedChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => recordedChunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(recordedChunks, { type: "audio/webm" });
+          const url = URL.createObjectURL(blob);
+          btnPlay.onclick = () => new Audio(url).play();
+          btnPlay.disabled = false;
+          log("✅ 녹음 완료 (재생 가능)");
+        };
+
+        mediaRecorder.start();
+        btnRecord.disabled = true;
+        btnStop.disabled = false;
+        log("🎙️ 녹음 시작됨");
+      };
+
+      btnStop.onclick = () => {
+        mediaRecorder.stop();
+        btnStop.disabled = true;
+        btnRecord.disabled = false;
+        log("⏹️ 녹음 중지됨");
+      };
+
+      // 📄 로그 다운로드
+      function downloadLog() {
+        const blob = new Blob([logs.join("\n")], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const now = new Date().toISOString().split("T")[0];
+        a.download = `ARS_로그_${now}.txt`;
+        a.click();
+        log("📄 로그 다운로드 완료");
+      }
+    </script>
+  </body>
+</html>
+
+
