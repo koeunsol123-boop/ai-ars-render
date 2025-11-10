@@ -62,7 +62,8 @@
       <div id="menu">
         <button onclick="startCall('fake')">가짜석유 신고</button>
         <button onclick="startCall('mixed')">혼합유 신고</button>
-        <button onclick="startCall('station')">주유소 개·폐업 신고</button>
+        <button onclick="startCall('station')">일반대리점 등록·변경 접수</button>
+        <button onclick="startCall('agency_close')">일반대리점 개시·휴업·폐업 신고</button>
       </div>
       <button onclick="endCall()">종료</button>
       <button onclick="downloadLog()">📄 로그 다운로드</button>
@@ -73,6 +74,7 @@
       <button id="btn-record">녹음 시작</button>
       <button id="btn-stop" disabled>⏹️ 녹음 중지</button>
       <button id="btn-play" disabled>▶️ 재생</button>
+      <button id="btn-save" disabled>💾 녹음 다운로드</button>
     </div>
 
     <h3>로그</h3>
@@ -86,18 +88,18 @@
       let recordedChunks = [];
       let logs = [];
 
-      // ✅ 모든 오디오 미리 만들어두기
+      // ✅ 모든 오디오 미리 로드
       const audios = {
-        intro: new Audio("/intro.mp3"),
-        fake: new Audio("/fake.mp3"),
-        mixed: new Audio("/mixed.mp3"),
-        station: new Audio("/station.mp3"),
-        ring: new Audio("/ring.mp3"),
-        unavailable: new Audio("/unavailable.mp3"),
-        end: new Audio("/end.mp3"),
+        intro: new Audio("/intro.mp3"), // 안내 멘트
+        fake: new Audio("/fake.mp3"), // 가짜석유
+        mixed: new Audio("/mixed.mp3"), // 혼합유
+        station: new Audio("/station.mp3"), // 일반대리점 등록·변경
+        agency_close: new Audio("/agency_close.mp3"), // 일반대리점 개시·휴업·폐업
+        ring: new Audio("/ring.mp3"), // 연결음
+        unavailable: new Audio("/unavailable.mp3"), // 부재중
+        end: new Audio("/end.mp3"), // 종료
       };
 
-      // 로그
       function log(msg) {
         const time = new Date().toLocaleTimeString();
         const entry = `[${time}] ${msg}`;
@@ -107,13 +109,12 @@
         logDiv.scrollTop = logDiv.scrollHeight;
       }
 
-      // iOS용 오디오 컨텍스트 활성화
       function activateAudio() {
-        if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        if (!audioContext)
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
         audioContext.resume();
       }
 
-      // 모든 오디오 정지
       function stopAllAudio() {
         Object.values(audios).forEach((a) => {
           a.pause();
@@ -122,7 +123,6 @@
         clearTimeout(callTimer);
       }
 
-      // 오디오 재생 (항상 터치 이벤트 내부)
       function playAudio(name, callback) {
         stopAllAudio();
         activateAudio();
@@ -136,12 +136,11 @@
         if (callback) audio.onended = callback;
       }
 
-      // 안내 멘트
       function initAudio() {
         if (!audioEnabled) {
           activateAudio();
           audioEnabled = true;
-          log("🔊 오디오 권한 활성화됨 (iOS Safari 포함)");
+          log("🔊 오디오 권한 활성화됨");
           playIntro();
         } else {
           playIntro();
@@ -157,12 +156,11 @@
         });
       }
 
-      // 신고 흐름
       function startCall(type) {
         if (!audioEnabled) {
           activateAudio();
           audioEnabled = true;
-          log("🔊 오디오 권한 자동 활성화됨 (첫 신고 클릭)");
+          log("🔊 오디오 권한 자동 활성화됨");
         }
 
         stopAllAudio();
@@ -173,24 +171,23 @@
           callTimer = setTimeout(() => {
             stopAllAudio();
             playAudio("unavailable", () => {
-              log("🎙️ 부재중 안내 종료 → 녹음 버튼 표시");
+              log("🎙️ 부재중 안내 종료 → 녹음버튼 표시");
               document.getElementById("recordingControls").style.display = "block";
             });
           }, 3000);
         });
       }
 
-      // 종료 버튼
       function endCall() {
         stopAllAudio();
         log("🛑 통화 종료 → 종료 멘트 재생");
         playAudio("end");
       }
 
-      // 녹음
       const btnRecord = document.getElementById("btn-record");
       const btnStop = document.getElementById("btn-stop");
       const btnPlay = document.getElementById("btn-play");
+      const btnSave = document.getElementById("btn-save");
 
       btnRecord.onclick = async () => {
         log("🎙️ 녹음 권한 요청");
@@ -210,7 +207,15 @@
           const url = URL.createObjectURL(blob);
           btnPlay.onclick = () => new Audio(url).play();
           btnPlay.disabled = false;
-          log("✅ 녹음 완료 (재생 가능)");
+          btnSave.disabled = false;
+          btnSave.onclick = () => {
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `ARS_녹음_${new Date().toISOString().split("T")[0]}.webm`;
+            a.click();
+            log("💾 녹음 파일 다운로드됨");
+          };
+          log("✅ 녹음 완료 (재생 및 저장 가능)");
         };
 
         mediaRecorder.start();
@@ -226,7 +231,6 @@
         log("⏹️ 녹음 중지됨");
       };
 
-      // 로그 다운로드
       function downloadLog() {
         const blob = new Blob([logs.join("\n")], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
