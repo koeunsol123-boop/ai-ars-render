@@ -81,13 +81,23 @@
     <script>
       let audioEnabled = false;
       let audioContext;
-      let globalAudio = null; // ✅ 전역 오디오 객체
       let callTimer;
       let mediaRecorder;
       let recordedChunks = [];
       let logs = [];
 
-      // 로그 출력
+      // ✅ 모든 오디오 미리 만들어두기
+      const audios = {
+        intro: new Audio("/intro.mp3"),
+        fake: new Audio("/fake.mp3"),
+        mixed: new Audio("/mixed.mp3"),
+        station: new Audio("/station.mp3"),
+        ring: new Audio("/ring.mp3"),
+        unavailable: new Audio("/unavailable.mp3"),
+        end: new Audio("/end.mp3"),
+      };
+
+      // 로그
       function log(msg) {
         const time = new Date().toLocaleTimeString();
         const entry = `[${time}] ${msg}`;
@@ -97,81 +107,73 @@
         logDiv.scrollTop = logDiv.scrollHeight;
       }
 
-      // 전역 오디오 재생 (항상 하나만 존재)
-      function playAudio(src, callback) {
-        try {
-          if (!globalAudio) globalAudio = new Audio();
-          globalAudio.pause();
-          globalAudio.currentTime = 0;
-          globalAudio.src = src;
-          globalAudio.onended = callback || null;
-          globalAudio.play().catch(() => {
-            log("⚠️ iOS 자동재생 차단됨 — 터치 필요");
-          });
-        } catch (e) {
-          console.error(e);
-        }
+      // iOS용 오디오 컨텍스트 활성화
+      function activateAudio() {
+        if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        audioContext.resume();
       }
 
-      // 모든 오디오 중지
-      function stopAudio() {
-        if (globalAudio) {
-          globalAudio.pause();
-          globalAudio.currentTime = 0;
-        }
+      // 모든 오디오 정지
+      function stopAllAudio() {
+        Object.values(audios).forEach((a) => {
+          a.pause();
+          a.currentTime = 0;
+        });
         clearTimeout(callTimer);
       }
 
-      // 오디오 권한 초기화
+      // 오디오 재생 (항상 터치 이벤트 내부)
+      function playAudio(name, callback) {
+        stopAllAudio();
+        activateAudio();
+
+        const audio = audios[name];
+        if (!audio) return;
+        audio.currentTime = 0;
+        audio.play().catch(() => {
+          log(`⚠️ ${name} 재생 차단됨 (iOS 권한 필요)`);
+        });
+        if (callback) audio.onended = callback;
+      }
+
+      // 안내 멘트
       function initAudio() {
         if (!audioEnabled) {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          audioContext.resume().then(() => {
-            audioEnabled = true;
-            log("🔊 오디오 권한 활성화됨 (iOS Safari 포함)");
-            playIntro();
-          });
+          activateAudio();
+          audioEnabled = true;
+          log("🔊 오디오 권한 활성화됨 (iOS Safari 포함)");
+          playIntro();
         } else {
           playIntro();
         }
       }
 
-      // 안내 멘트
       function playIntro() {
-        stopAudio();
+        stopAllAudio();
         log("🗣️ 안내 멘트 재생");
-        playAudio("/intro.mp3", () => {
+        playAudio("intro", () => {
           log("✅ 안내 멘트 종료 → 메뉴 표시");
           document.getElementById("menu").style.display = "block";
         });
       }
 
-      // 신고 유형 클릭
+      // 신고 흐름
       function startCall(type) {
         if (!audioEnabled) {
-          // 신고 클릭으로도 오디오 권한 허용
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          audioContext.resume().then(() => {
-            audioEnabled = true;
-            log("🔊 오디오 권한 자동 활성화됨 (첫 신고 클릭)");
-            actuallyStartCall(type);
-          });
-        } else {
-          actuallyStartCall(type);
+          activateAudio();
+          audioEnabled = true;
+          log("🔊 오디오 권한 자동 활성화됨 (첫 신고 클릭)");
         }
-      }
 
-      function actuallyStartCall(type) {
-        stopAudio();
+        stopAllAudio();
         log(`📞 ${type} 신고 통화 시작`);
-        playAudio(`/${type}.mp3`, () => {
-          log("🔊 담당자 멘트 재생 완료 → 연결음 (3초)");
-          playAudio("/ring.mp3");
+        playAudio(type, () => {
+          log("🔊 담당자 멘트 완료 → 연결음 3초");
+          playAudio("ring");
           callTimer = setTimeout(() => {
-            stopAudio();
-            log("⏱️ 부재중 안내 재생");
-            playAudio("/unavailable.mp3", () => {
-              log("🎙️ 부재중 안내 종료 → 녹음버튼 표시");
+            stopAllAudio();
+            playAudio("unavailable", () => {
+              log("🎙️ 부재중 안내 종료 → 녹음 버튼 표시");
               document.getElementById("recordingControls").style.display = "block";
             });
           }, 3000);
@@ -180,12 +182,12 @@
 
       // 종료 버튼
       function endCall() {
-        stopAudio();
+        stopAllAudio();
         log("🛑 통화 종료 → 종료 멘트 재생");
-        playAudio("/end.mp3");
+        playAudio("end");
       }
 
-      // 녹음 기능
+      // 녹음
       const btnRecord = document.getElementById("btn-record");
       const btnStop = document.getElementById("btn-stop");
       const btnPlay = document.getElementById("btn-play");
