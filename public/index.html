@@ -43,6 +43,10 @@
         display: none;
         margin-top: 15px;
       }
+      #recordingControls {
+        margin-top: 20px;
+        display: none;
+      }
     </style>
   </head>
 
@@ -54,7 +58,7 @@
     </p>
 
     <div>
-      <button onclick="playIntro()">① 안내 멘트 재생</button>
+      <button onclick="initAudio()">① 안내 멘트 재생</button>
       <div id="menu">
         <button onclick="startCall('fake')">가짜석유 신고</button>
         <button onclick="startCall('mixed')">혼합유 신고</button>
@@ -64,7 +68,7 @@
       <button onclick="downloadLog()">📄 로그 다운로드</button>
     </div>
 
-    <div id="recordingControls" style="margin-top: 20px; display: none;">
+    <div id="recordingControls">
       <h3>🎙️ 담당자 부재중 녹음</h3>
       <button id="btn-record">녹음 시작</button>
       <button id="btn-stop" disabled>⏹️ 녹음 중지</button>
@@ -75,16 +79,13 @@
     <div id="log"></div>
 
     <script>
+      let audioEnabled = false;
+      let callTimer;
       let mediaRecorder;
-      let micStream;
       let recordedChunks = [];
       let logs = [];
 
-      // 🎧 재생 중인 오디오, 예약된 타이머, 종료 상태 플래그
-      let activeAudios = [];
-      let timers = [];
-      let isEnded = false;
-
+      // 로그 출력
       function log(msg) {
         const time = new Date().toLocaleTimeString();
         const entry = `[${time}] ${msg}`;
@@ -94,104 +95,84 @@
         logDiv.scrollTop = logDiv.scrollHeight;
       }
 
-      // ✅ 타이머 등록 (종료 후 실행 방지)
-      function setGuardedTimeout(fn, ms) {
-        const id = setTimeout(() => {
-          if (isEnded) return;
-          fn();
-        }, ms);
-        timers.push(id);
-        return id;
-      }
-
-      // ✅ 오디오 재생
+      // 오디오 재생 (모바일 자동재생 예외처리)
       function playAudio(src, callback) {
-        if (isEnded) return;
         const audio = new Audio(src);
-        activeAudios.push(audio);
-        audio.play().catch(() => {});
-        audio.onended = () => {
-          activeAudios = activeAudios.filter((a) => a !== audio);
-          if (!isEnded && callback) callback();
-        };
-        return audio;
+        audio.play().catch(() => {
+          log("⚠️ 모바일 자동재생 차단됨 — 터치 후 재시도 필요");
+        });
+        if (callback) audio.onended = callback;
       }
 
-      // 🗣️ 안내 멘트
+      // iOS 오디오 권한 초기화
+      function initAudio() {
+        if (!audioEnabled) {
+          const a = new Audio();
+          a.play().catch(() => {});
+          audioEnabled = true;
+          log("🔊 오디오 권한 활성화됨");
+        }
+        playIntro();
+      }
+
+      // 안내 멘트 재생
       function playIntro() {
-        isEnded = false;
-        log("🗣️ 안내 멘트 재생 시작");
-        playAudio("intro.mp3", () => {
+        log("🗣️ 안내 멘트 재생");
+        playAudio("/intro.mp3", () => {
           log("✅ 안내 멘트 종료 → 메뉴 표시");
           document.getElementById("menu").style.display = "block";
         });
       }
 
-      // 📞 신고 선택 시 흐름
+      // 신고 유형 선택 시 흐름
       function startCall(type) {
-        isEnded = false;
         log(`📞 ${type} 신고 통화 시작`);
-
-        playAudio(`${type}.mp3`, () => {
+        playAudio(`/${type}.mp3`, () => {
           log("🔊 담당자 멘트 재생 완료 → 연결음 재생 (3초)");
-          const ring = playAudio("ring.mp3");
+          const ring = new Audio("/ring.mp3");
+          ring.play();
 
-          setGuardedTimeout(() => {
-            if (ring) {
-              ring.pause();
-              ring.currentTime = 0;
-              activeAudios = activeAudios.filter((a) => a !== ring);
-            }
+          setTimeout(() => {
+            ring.pause();
+            ring.currentTime = 0;
             log("⏱️ 3초 후 부재중 안내 재생");
-            setGuardedTimeout(() => {
-              playAudio("unavailable.mp3", () => {
-                log("🎙️ 담당자 부재중 안내 종료 → 녹음버튼 표시");
-                if (!isEnded) {
-                  document.getElementById("recordingControls").style.display = "block";
-                }
-              });
-            }, 3000);
+            playAudio("/unavailable.mp3", () => {
+              log("🎙️ 부재중 안내 종료 → 녹음 버튼 표시");
+              document.getElementById("recordingControls").style.display = "block";
+            });
           }, 3000);
         });
       }
 
-      // 🛑 종료: 모든 오디오·타이머·녹음 즉시 중단
+      // 종료 버튼 — 모든 오디오 즉시 중단
       function endCall() {
-        isEnded = true;
-        timers.forEach((id) => clearTimeout(id));
-        timers = [];
+        log("🛑 통화 종료");
+        clearTimeout(callTimer);
 
-        activeAudios.forEach((a) => {
-          try {
-            a.pause();
-            a.currentTime = 0;
-          } catch {}
+        // 실행 중인 모든 오디오 중단
+        document.querySelectorAll("audio").forEach(a => {
+          try { a.pause(); a.currentTime = 0; } catch(e) {}
         });
-        activeAudios = [];
 
-        try {
-          if (mediaRecorder && mediaRecorder.state !== "inactive") {
-            mediaRecorder.stop();
-          }
-          if (micStream) {
-            micStream.getTracks().forEach((t) => t.stop());
-            micStream = null;
-          }
-        } catch {}
-
-        playAudio("end.mp3");
-        log("🛑 통화 종료 (모든 오디오·타이머·녹음 즉시 중단)");
+        // 종료 멘트
+        playAudio("/end.mp3");
       }
 
-      // 🎙️ 녹음 기능
+      // 녹음 기능
       const btnRecord = document.getElementById("btn-record");
       const btnStop = document.getElementById("btn-stop");
       const btnPlay = document.getElementById("btn-play");
 
       btnRecord.onclick = async () => {
-        isEnded = false;
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(micStream);
+        log("🎙️ 녹음 권한 요청");
+        const stream = await navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .catch((e) => {
+            log("🚫 마이크 권한 거부됨");
+          });
+        if (!stream) return;
+
+        mediaRecorder = new MediaRecorder(stream);
         recordedChunks = [];
 
         mediaRecorder.ondataavailable = (e) => recordedChunks.push(e.data);
@@ -210,19 +191,13 @@
       };
 
       btnStop.onclick = () => {
-        if (mediaRecorder && mediaRecorder.state !== "inactive") {
-          mediaRecorder.stop();
-        }
-        if (micStream) {
-          micStream.getTracks().forEach((t) => t.stop());
-          micStream = null;
-        }
+        mediaRecorder.stop();
         btnStop.disabled = true;
         btnRecord.disabled = false;
         log("⏹️ 녹음 중지됨");
       };
 
-      // 📄 로그 다운로드
+      // 로그 다운로드
       function downloadLog() {
         const blob = new Blob([logs.join("\n")], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
