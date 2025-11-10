@@ -88,16 +88,15 @@
       let recordedChunks = [];
       let logs = [];
 
-      // ✅ 모든 오디오 미리 로드
       const audios = {
-        intro: new Audio("/intro.mp3"), // 안내 멘트
-        fake: new Audio("/fake.mp3"), // 가짜석유
-        mixed: new Audio("/mixed.mp3"), // 혼합유
-        station: new Audio("/station.mp3"), // 일반대리점 등록·변경
-        agency_close: new Audio("/agency_close.mp3"), // 일반대리점 개시·휴업·폐업
-        ring: new Audio("/ring.mp3"), // 연결음
-        unavailable: new Audio("/unavailable.mp3"), // 부재중
-        end: new Audio("/end.mp3"), // 종료
+        intro: new Audio("/intro.mp3"),
+        fake: new Audio("/fake.mp3"),
+        mixed: new Audio("/mixed.mp3"),
+        station: new Audio("/station.mp3"),
+        agency_close: new Audio("/agency_close.mp3"),
+        ring: new Audio("/ring.mp3"),
+        unavailable: new Audio("/unavailable.mp3"),
+        end: new Audio("/end.mp3"),
       };
 
       function log(msg) {
