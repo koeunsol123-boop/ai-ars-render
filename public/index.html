@@ -80,12 +80,13 @@
 
     <script>
       let audioEnabled = false;
+      let audioContext;
       let callTimer;
       let mediaRecorder;
       let recordedChunks = [];
       let logs = [];
 
-      // 로그 출력
+      // 로그 출력 함수
       function log(msg) {
         const time = new Date().toLocaleTimeString();
         const entry = `[${time}] ${msg}`;
@@ -95,27 +96,48 @@
         logDiv.scrollTop = logDiv.scrollHeight;
       }
 
-      // 오디오 재생 (모바일 자동재생 예외처리)
+      // 오디오 미리 로드 (iOS 지연 방지)
+      function preloadAudios() {
+        const files = [
+          "/intro.mp3",
+          "/fake.mp3",
+          "/mixed.mp3",
+          "/station.mp3",
+          "/ring.mp3",
+          "/unavailable.mp3",
+          "/end.mp3",
+        ];
+        files.forEach((src) => {
+          const a = new Audio(src);
+          a.load();
+        });
+      }
+
+      // 오디오 재생 함수
       function playAudio(src, callback) {
         const audio = new Audio(src);
         audio.play().catch(() => {
-          log("⚠️ 모바일 자동재생 차단됨 — 터치 후 재시도 필요");
+          log("⚠️ iOS 자동재생 차단됨 — 반드시 터치 후 실행 필요");
         });
         if (callback) audio.onended = callback;
       }
 
-      // iOS 오디오 권한 초기화
+      // iOS용 오디오 권한 초기화
       function initAudio() {
         if (!audioEnabled) {
-          const a = new Audio();
-          a.play().catch(() => {});
-          audioEnabled = true;
-          log("🔊 오디오 권한 활성화됨");
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          audioContext.resume().then(() => {
+            preloadAudios();
+            log("🔊 오디오 권한 활성화됨 (iOS Safari 포함)");
+            audioEnabled = true;
+            playIntro();
+          });
+        } else {
+          playIntro();
         }
-        playIntro();
       }
 
-      // 안내 멘트 재생
+      // 안내멘트
       function playIntro() {
         log("🗣️ 안내 멘트 재생");
         playAudio("/intro.mp3", () => {
@@ -124,7 +146,7 @@
         });
       }
 
-      // 신고 유형 선택 시 흐름
+      // 신고유형 선택 → 담당자멘트 → 연결음 → 부재중멘트
       function startCall(type) {
         log(`📞 ${type} 신고 통화 시작`);
         playAudio(`/${type}.mp3`, () => {
@@ -144,17 +166,16 @@
         });
       }
 
-      // 종료 버튼 — 모든 오디오 즉시 중단
+      // 종료 버튼 → 오디오 모두 중지 후 종료멘트
       function endCall() {
         log("🛑 통화 종료");
         clearTimeout(callTimer);
-
-        // 실행 중인 모든 오디오 중단
-        document.querySelectorAll("audio").forEach(a => {
-          try { a.pause(); a.currentTime = 0; } catch(e) {}
+        document.querySelectorAll("audio").forEach((a) => {
+          try {
+            a.pause();
+            a.currentTime = 0;
+          } catch (e) {}
         });
-
-        // 종료 멘트
         playAudio("/end.mp3");
       }
 
@@ -167,7 +188,7 @@
         log("🎙️ 녹음 권한 요청");
         const stream = await navigator.mediaDevices
           .getUserMedia({ audio: true })
-          .catch((e) => {
+          .catch(() => {
             log("🚫 마이크 권한 거부됨");
           });
         if (!stream) return;
