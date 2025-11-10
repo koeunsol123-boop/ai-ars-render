@@ -75,10 +75,15 @@
     <div id="log"></div>
 
     <script>
-      let callTimer;
       let mediaRecorder;
+      let micStream;
       let recordedChunks = [];
       let logs = [];
+
+      // 🎧 재생 중인 오디오, 예약된 타이머, 종료 상태 플래그
+      let activeAudios = [];
+      let timers = [];
+      let isEnded = false;
 
       function log(msg) {
         const time = new Date().toLocaleTimeString();
@@ -89,14 +94,32 @@
         logDiv.scrollTop = logDiv.scrollHeight;
       }
 
+      // ✅ 타이머 등록 (종료 후 실행 방지)
+      function setGuardedTimeout(fn, ms) {
+        const id = setTimeout(() => {
+          if (isEnded) return;
+          fn();
+        }, ms);
+        timers.push(id);
+        return id;
+      }
+
+      // ✅ 오디오 재생
       function playAudio(src, callback) {
+        if (isEnded) return;
         const audio = new Audio(src);
-        audio.play();
-        if (callback) audio.onended = callback;
+        activeAudios.push(audio);
+        audio.play().catch(() => {});
+        audio.onended = () => {
+          activeAudios = activeAudios.filter((a) => a !== audio);
+          if (!isEnded && callback) callback();
+        };
+        return audio;
       }
 
       // 🗣️ 안내 멘트
       function playIntro() {
+        isEnded = false;
         log("🗣️ 안내 멘트 재생 시작");
         playAudio("intro.mp3", () => {
           log("✅ 안내 멘트 종료 → 메뉴 표시");
@@ -104,32 +127,60 @@
         });
       }
 
-      // 📞 신고 선택 시 흐름: 담당자 안내 → 3초 연결음 → 3초 뒤 부재중 안내
+      // 📞 신고 선택 시 흐름
       function startCall(type) {
+        isEnded = false;
         log(`📞 ${type} 신고 통화 시작`);
+
         playAudio(`${type}.mp3`, () => {
           log("🔊 담당자 멘트 재생 완료 → 연결음 재생 (3초)");
-          const ring = new Audio("ring.mp3");
-          ring.play();
-          setTimeout(() => {
-            ring.pause();
-            ring.currentTime = 0;
+          const ring = playAudio("ring.mp3");
+
+          setGuardedTimeout(() => {
+            if (ring) {
+              ring.pause();
+              ring.currentTime = 0;
+              activeAudios = activeAudios.filter((a) => a !== ring);
+            }
             log("⏱️ 3초 후 부재중 안내 재생");
-            callTimer = setTimeout(() => {
+            setGuardedTimeout(() => {
               playAudio("unavailable.mp3", () => {
                 log("🎙️ 담당자 부재중 안내 종료 → 녹음버튼 표시");
-                document.getElementById("recordingControls").style.display = "block";
+                if (!isEnded) {
+                  document.getElementById("recordingControls").style.display = "block";
+                }
               });
-            }, 3000); // 부재중 안내 3초 후 재생
-          }, 3000); // 연결음 3초만 재생
+            }, 3000);
+          }, 3000);
         });
       }
 
-      // 🛑 종료
+      // 🛑 종료: 모든 오디오·타이머·녹음 즉시 중단
       function endCall() {
-        clearTimeout(callTimer);
+        isEnded = true;
+        timers.forEach((id) => clearTimeout(id));
+        timers = [];
+
+        activeAudios.forEach((a) => {
+          try {
+            a.pause();
+            a.currentTime = 0;
+          } catch {}
+        });
+        activeAudios = [];
+
+        try {
+          if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+          }
+          if (micStream) {
+            micStream.getTracks().forEach((t) => t.stop());
+            micStream = null;
+          }
+        } catch {}
+
         playAudio("end.mp3");
-        log("🛑 통화 종료");
+        log("🛑 통화 종료 (모든 오디오·타이머·녹음 즉시 중단)");
       }
 
       // 🎙️ 녹음 기능
@@ -138,8 +189,9 @@
       const btnPlay = document.getElementById("btn-play");
 
       btnRecord.onclick = async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
+        isEnded = false;
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(micStream);
         recordedChunks = [];
 
         mediaRecorder.ondataavailable = (e) => recordedChunks.push(e.data);
@@ -158,7 +210,13 @@
       };
 
       btnStop.onclick = () => {
-        mediaRecorder.stop();
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+          mediaRecorder.stop();
+        }
+        if (micStream) {
+          micStream.getTracks().forEach((t) => t.stop());
+          micStream = null;
+        }
         btnStop.disabled = true;
         btnRecord.disabled = false;
         log("⏹️ 녹음 중지됨");
@@ -178,5 +236,3 @@
     </script>
   </body>
 </html>
-
-
