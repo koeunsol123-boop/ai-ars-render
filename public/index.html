@@ -85,6 +85,7 @@
       let mediaRecorder;
       let recordedChunks = [];
       let logs = [];
+      let activeAudios = []; // 🔹 재생 중인 오디오 추적용
 
       // 로그 출력
       function log(msg) {
@@ -96,40 +97,48 @@
         logDiv.scrollTop = logDiv.scrollHeight;
       }
 
-      // 오디오 미리 로드
-      function preloadAudios() {
-        const files = [
-          "/intro.mp3",
-          "/fake.mp3",
-          "/mixed.mp3",
-          "/station.mp3",
-          "/ring.mp3",
-          "/unavailable.mp3",
-          "/end.mp3",
-        ];
-        files.forEach((src) => {
-          const a = new Audio(src);
-          a.load();
-        });
-      }
-
-      // 오디오 재생
+      // 오디오 재생 + 추적
       function playAudio(src, callback) {
         const audio = new Audio(src);
+        activeAudios.push(audio);
         audio.play().catch(() => {
           log("⚠️ 자동재생 차단됨 — 터치로 오디오 권한 허용 필요");
         });
-        if (callback) audio.onended = callback;
+        audio.onended = () => {
+          activeAudios = activeAudios.filter((a) => a !== audio);
+          if (callback) callback();
+        };
       }
 
-      // 오디오 권한 초기화 (안내멘트 버튼용)
+      // 모든 오디오 즉시 정지
+      function stopAllAudios() {
+        activeAudios.forEach((a) => {
+          try {
+            a.pause();
+            a.currentTime = 0;
+          } catch (e) {}
+        });
+        activeAudios = [];
+        clearTimeout(callTimer);
+      }
+
+      // 오디오 미리 로드
+      function preloadAudios() {
+        ["/intro.mp3", "/fake.mp3", "/mixed.mp3", "/station.mp3", "/ring.mp3", "/unavailable.mp3", "/end.mp3"]
+          .forEach((src) => {
+            const a = new Audio(src);
+            a.load();
+          });
+      }
+
+      // 오디오 권한 초기화
       function initAudio() {
         if (!audioEnabled) {
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           audioContext.resume().then(() => {
             preloadAudios();
-            log("🔊 오디오 권한 활성화됨 (모바일/PC)");
             audioEnabled = true;
+            log("🔊 오디오 권한 활성화됨");
             playIntro();
           });
         } else {
@@ -137,8 +146,9 @@
         }
       }
 
-      // 안내멘트
+      // 안내 멘트
       function playIntro() {
+        stopAllAudios();
         log("🗣️ 안내 멘트 재생");
         playAudio("/intro.mp3", () => {
           log("✅ 안내 멘트 종료 → 메뉴 표시");
@@ -146,10 +156,9 @@
         });
       }
 
-      // 신고유형 클릭 시 오디오 허용도 동시에 처리
+      // 신고유형 클릭
       function startCall(type) {
         if (!audioEnabled) {
-          // 첫 신고 클릭으로 오디오 권한 자동 허용
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           audioContext.resume().then(() => {
             audioEnabled = true;
@@ -161,16 +170,17 @@
         }
       }
 
-      // 실제 통화 흐름
       function actuallyStartCall(type) {
+        stopAllAudios();
         log(`📞 ${type} 신고 통화 시작`);
         playAudio(`/${type}.mp3`, () => {
           log("🔊 담당자 멘트 재생 완료 → 연결음 재생 (3초)");
           const ring = new Audio("/ring.mp3");
+          activeAudios.push(ring);
           ring.play();
-          setTimeout(() => {
-            ring.pause();
-            ring.currentTime = 0;
+
+          callTimer = setTimeout(() => {
+            stopAllAudios();
             log("⏱️ 3초 후 부재중 안내 재생");
             playAudio("/unavailable.mp3", () => {
               log("🎙️ 부재중 안내 종료 → 녹음 버튼 표시");
@@ -180,16 +190,10 @@
         });
       }
 
-      // 종료 버튼
+      // 종료 버튼: 모든 재생 중지 + 종료멘트
       function endCall() {
+        stopAllAudios();
         log("🛑 통화 종료");
-        clearTimeout(callTimer);
-        document.querySelectorAll("audio").forEach((a) => {
-          try {
-            a.pause();
-            a.currentTime = 0;
-          } catch (e) {}
-        });
         playAudio("/end.mp3");
       }
 
@@ -200,11 +204,9 @@
 
       btnRecord.onclick = async () => {
         log("🎙️ 녹음 권한 요청");
-        const stream = await navigator.mediaDevices
-          .getUserMedia({ audio: true })
-          .catch(() => {
-            log("🚫 마이크 권한 거부됨");
-          });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {
+          log("🚫 마이크 권한 거부됨");
+        });
         if (!stream) return;
 
         mediaRecorder = new MediaRecorder(stream);
