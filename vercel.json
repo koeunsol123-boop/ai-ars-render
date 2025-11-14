@@ -7,7 +7,7 @@
   "redirects": [
     {
       "source": "/",
-      "destination": "https://PUBLIC_URL_HERE",
+      "destination": "https://ai-ars-render-vercel.vercel.app/",
       "permanent": false
     }
   ]
